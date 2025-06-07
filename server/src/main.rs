@@ -1,6 +1,5 @@
 use chrono::Local;
-use std::{time::Duration};
-//use systemstat::{Platform, System};
+use tokio::time::{sleep, Duration};
 use tokio::{
   io::AsyncWriteExt,
   net::{TcpListener, TcpStream},
@@ -12,7 +11,7 @@ async fn process(mut socket: TcpStream) {
   socket.set_nodelay(true).unwrap();
 
   loop {
-    std::thread::sleep(Duration::from_secs(1));
+    sleep(Duration::from_secs(1)).await;
 
     let local = Local::now();
     let time = local.format("%H:%M:%S\n").to_string();
@@ -34,6 +33,7 @@ async fn main() {
     println!("Application started");
     
     loop {
+      println!("Listening");
         match listener.accept().await {
         Ok((socket, _)) => {
             tokio::spawn(async move {

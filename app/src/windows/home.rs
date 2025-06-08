@@ -5,18 +5,18 @@ use gtk::Button;
 
 use super::acc_list::window_acc_list;
 
-fn change_window(app : &Application) {
+/* fn change_window(app : &Application) {
     app.connect_activate(|app| {
         let new_window = window_acc_list(app);
         app.connect_window_added(move |_| {
             new_window.show();
         });
     });
-}
+} */
 
-pub fn window_home(app : &Application) -> ApplicationWindow {
+pub fn window_home() -> ApplicationWindow {
     let window = ApplicationWindow::builder()
-        .application(app)
+        //.application(app)
         .default_height(500)
         .default_width(500)
         .title("Home")
@@ -27,7 +27,14 @@ pub fn window_home(app : &Application) -> ApplicationWindow {
         //.border_width(10)
         .build();
 
-    button_change_to_acc_list.connect_clicked(change_window(app));
+    let wlist = app.windows();
+    println!("{:?}", wlist);
+
+
+    button_change_to_acc_list.connect_clicked(move |_| {
+        let window_acc_list = window_acc_list();
+        window_acc_list.show();
+    });
 
     window.set_child(Some(&button_change_to_acc_list));
 

@@ -3,10 +3,10 @@ use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk::Button;
 
-pub fn window_acc_list(app : &Application) -> ApplicationWindow {
+pub fn window_acc_list() -> ApplicationWindow {
 
     let window = ApplicationWindow::builder()
-        .application(app)
+        //.application(app)
         .title("Account List")
         .build();
 

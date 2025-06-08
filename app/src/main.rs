@@ -12,7 +12,7 @@ fn main() -> glib::ExitCode {
 
     app.connect_activate(|app| {
         // We create the main window.
-        let window = window_home(app); 
+        let window = window_home(); 
             /* ApplicationWindow::builder()
             .application(app)
             .default_width(320)
@@ -21,6 +21,7 @@ fn main() -> glib::ExitCode {
             .build(); */
 
         // Show the window.
+        window.set_application(app.is());
         window.present();
     });
 

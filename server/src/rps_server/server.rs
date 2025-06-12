@@ -15,20 +15,31 @@ use super::rps_match::RpsMoveType::*;
 use super::rps_match::RpsMoveResult;
 use super::rps_match::RpsMoveResult::*;
 
+pub async fn recieve_buf_stream(stream : &TcpStream) -> Vec<u8>{
+    let mut comm_buf = Vec::new(); 
+    loop {
+        stream.readable().await.expect("Should Be Readable");
+        match stream.try_read(&mut comm_buf) {
+            Ok(n) if n > 0 => return comm_buf,
+            _ => continue,
+        }
+    }
+}
 
 pub async fn handle_client(mut stream : TcpStream, addr : SocketAddr, c_to_cm_sender : Sender<RpsMatchClientInfo>) {
     stream.set_nodelay(true).unwrap();
 
     let wait_msg = "Provide Name";
     
+    println!("Requesting Client Name");
     if let Err(e) = stream.write_all(wait_msg.as_bytes()).await {
 			println!("Error Getting Name From Client: {}", e);
 			return;
     }
 
-    let mut inc_name = Vec::new();
-    stream.readable().await.expect("Should Be A Readable Stream");
-    stream.try_read(&mut inc_name);
+    println!("Waiting On Client Name");
+    let inc_name = recieve_buf_stream(&stream).await;
+    println!("Recieved Client Name");
 
     let inc_name_processed = String::from_utf8(inc_name).unwrap();
 
@@ -142,7 +153,14 @@ pub async fn handle_match(client_pair : RpsMatchClientPair) {
     }
     
     let play_move = "Play Your Move".to_string();
-    let mut m = RpsMatchInfo { p1_name:p1.client_name.clone(), p2_name:p2.client_name.clone(), p1_score:0, p2_score:0, status:RpsMatchStatus::Ongoing };
+    let mut m = RpsMatchInfo { 
+        p1_name:p1.client_name.clone(),
+        p2_name:p2.client_name.clone(), 
+        p1_score:0, 
+        p2_score:0, 
+        status:RpsMatchStatus::Ongoing,
+        won_round:"None".to_string(),
+    };
     loop {
         // Requesting Player Moves
         if let Err(e) = p1.stream.write_all(play_move.clone().as_bytes()).await {
@@ -190,10 +208,12 @@ pub async fn handle_match(client_pair : RpsMatchClientPair) {
         // Update Match Info
         if p1_res == Win {
             m.p1_score += 1;
+            m.won_round = m.p1_name.clone();
         }
 
         if p2_res == Win {
             m.p2_score += 1;
+            m.won_round = m.p2_name.clone();
         }
 
         if m.p1_score >= 2 || m.p2_score >= 2 {

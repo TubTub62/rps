@@ -125,9 +125,9 @@ pub async fn handle_match(client_pair : RpsMatchClientPair) {
     let mut p1 = client_pair.p1;
     let mut p2 = client_pair.p2;
     
-    
-    let p1_start = format!("Your versus {}", p1.client_name.clone());
-    let p2_start = format!("Your versus {}", p2.client_name.clone());
+    // Giving Each Client Oponnent Name
+    let p1_start = format!("{}", p2.client_name.clone());
+    let p2_start = format!("{}", p1.client_name.clone());
     
     println!("Asking Clients For Moves");
     

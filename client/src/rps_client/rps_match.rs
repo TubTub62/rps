@@ -1,53 +1,24 @@
 use tokio::net::TcpStream;
-use tokio::io;
+use serde::{Deserialize, Serialize};
 
-pub struct RpsMatchStatus {
-    player : String,
-    opponent : String,
-    p_points : i32,
-    o_points : i32
+#[derive(Copy, Clone, Deserialize)]
+pub enum RpsMatchStatus {
+    Ongoing,
+    Done,
 }
 
-pub async fn display_score(rps_m : &RpsMatchStatus) {
-
-    println!("Your Score: {:?}", rps_m.p_points);
-    println!("Opponent's Score: {}", &rps_m.o_points);
-
+#[derive(Deserialize)]
+pub struct RpsMatchInfo {
+    pub p1_name : String,
+    pub p2_name : String,
+    pub p1_score : i32,
+    pub p2_score : i32,
+    pub status : RpsMatchStatus,
 }
 
-// protocol:
-// Vec of player names followed by ;
-// vec of associated scores, respectfuly, followed by ;
-pub async fn recieve_round_result(rps_m : &mut RpsMatchStatus, stream : &TcpStream) {
-    let mut buf = Vec::new();
-    stream.readable().await;
-    stream.try_read_buf(&mut buf);
 
-    println!("{:?}", &buf);
-}
-
-pub async fn wait_for_match(stream : &TcpStream) {
-    let mut buf = Vec::new();
-
-    loop {
-        // Try to read data, this may still fail with `WouldBlock`
-        // if the readiness event is a false positive.
-        stream.readable().await.expect("Failed To Read");
-        match stream.try_read_buf(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                println!("incoming message: {:?}", String::from_utf8(buf.clone()));
-            }
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                continue;
-            }
-            Err(e) => {
-                println!("Some error: {}", e);
-                //return e;
-            }
-        }
+impl Clone for RpsMatchInfo {
+    fn clone(&self) -> RpsMatchInfo {
+        return RpsMatchInfo{ p1_name:self.p1_name.clone(), p2_name:self.p2_name.clone(), p1_score:self.p1_score, p2_score:self.p2_score, status:self.status }
     }
-
-    let msg = String::from_utf8(buf).unwrap();
-    println!("{:?}", &msg);
 }

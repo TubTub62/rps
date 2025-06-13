@@ -26,15 +26,22 @@ pub async fn recieve_buf_stream(stream : &TcpStream) -> Vec<u8>{
     }
 }
 
+pub async fn send_buf_stream(stream : &mut TcpStream, buf : &[u8]) {
+    if let Err(e) = stream.write_all(&buf).await {
+			println!("Error Getting Name From Client: {}", e);
+			return;
+    }
+}
+
 pub async fn handle_client(mut stream : TcpStream, addr : SocketAddr, c_to_cm_sender : Sender<RpsMatchClientInfo>) {
     stream.set_nodelay(true).unwrap();
 
-    let wait_msg = "Provide Name";
+    let wait_msg = "Provide Name".to_string();
     
     println!("Requesting Client Name");
-    if let Err(e) = stream.write_all(wait_msg.as_bytes()).await {
-			println!("Error Getting Name From Client: {}", e);
-			return;
+    for _ in 0..10 {
+        send_buf_stream(&mut stream, wait_msg.as_bytes()).await;
+        println!("r");
     }
 
     println!("Waiting On Client Name");

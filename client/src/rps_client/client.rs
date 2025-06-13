@@ -1,5 +1,7 @@
 use tokio::{io::AsyncWriteExt, net::TcpStream};
-use std::io;
+use std::{io, time::Duration};
+use tokio::time::sleep;
+
 
 use crate::rps_client::{play, rps_match::{self, RpsMatchInfo}};
 
@@ -15,10 +17,14 @@ pub async fn recieve_buf_from_server(stream : &TcpStream) -> Vec<u8>{
     loop {
         stream.readable().await.expect("Should Be Readable");
         match stream.try_read(&mut comm_buf) {
-            Ok(n) if n > 0 => return comm_buf,
+            Ok(n) if n > 0 => {
+                println!("Recieved Buf");
+                return comm_buf;
+            }
             _ => {
                 /* let msg = String::from_utf8(comm_buf.clone()).unwrap();
                 println!("No Message Recieved: {}", msg); */
+                sleep(Duration::from_secs(1)).await;
                 continue;
             }
         }
@@ -99,8 +105,8 @@ pub async fn spawn_client(player_name : String) {
 
     println!("Client {} - Trying to connect to server", &player_name);
 
-    let addr = "127.0.0.1:4000";
-    let mut stream = TcpStream::connect(&addr).await.unwrap();
+    let addr = "127.0.0.1:4000".to_string();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
 
     println!("Client {} - Connected to server", &player_name);
 

@@ -1,48 +1,28 @@
-use serde::Serialize;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::{Sender, Receiver};
 use tokio::sync::mpsc;
 
-use std::net::{SocketAddr};
+extern crate rps_lib;
 
-use super::rps_match::{RpsMatchClientInfo, RpsMatchClientPair, RpsMatchInfo};
-use super::rps_match::{RpsClientStatus, RpsMatchStatus};
+use rps_lib::types::{RpsMatchClientInfo, RpsMatchClientPair, RpsMatchInfo};
+use rps_lib::types::{RpsClientStatus, RpsMatchStatus};
 
-use super::rps_match::RpsMoveType;
-use super::rps_match::RpsMoveType::*;
+use rps_lib::types::RpsMoveType;
+use rps_lib::types::RpsMoveType::*;
 
-use super::rps_match::RpsMoveResult;
-use super::rps_match::RpsMoveResult::*;
+use rps_lib::types::RpsMoveResult;
+use rps_lib::types::RpsMoveResult::*;
 
-pub async fn recieve_buf_stream(stream : &TcpStream) -> Vec<u8>{
-    let mut comm_buf = Vec::new(); 
-    loop {
-        stream.readable().await.expect("Should Be Readable");
-        match stream.try_read(&mut comm_buf) {
-            Ok(n) if n > 0 => return comm_buf,
-            _ => continue,
-        }
-    }
-}
+use rps_lib::util::{send_buf_stream, recieve_buf_stream};
 
-pub async fn send_buf_stream(stream : &mut TcpStream, buf : &[u8]) {
-    if let Err(e) = stream.write_all(&buf).await {
-			println!("Error Getting Name From Client: {}", e);
-			return;
-    }
-}
-
-pub async fn handle_client(mut stream : TcpStream, addr : SocketAddr, c_to_cm_sender : Sender<RpsMatchClientInfo>) {
+pub async fn handle_client(mut stream : TcpStream, c_to_cm_sender : Sender<RpsMatchClientInfo>) {
     stream.set_nodelay(true).unwrap();
 
     let wait_msg = "Provide Name".to_string();
     
     println!("Requesting Client Name");
-    for _ in 0..10 {
-        send_buf_stream(&mut stream, wait_msg.as_bytes()).await;
-        println!("r");
-    }
+    send_buf_stream(&mut stream, wait_msg.as_bytes()).await;
 
     println!("Waiting On Client Name");
     let inc_name = recieve_buf_stream(&stream).await;
@@ -52,7 +32,9 @@ pub async fn handle_client(mut stream : TcpStream, addr : SocketAddr, c_to_cm_se
 
     let (match_info_sender, mut match_info_reciever) = mpsc::channel::<RpsMatchInfo>(100);
 
-    let match_stream = TcpStream::connect(&addr).await.unwrap();
+    let match_socket_ip_buf = recieve_buf_stream(&stream).await;
+    let match_socket_ip = String::from_utf8(match_socket_ip_buf).expect("Failed To Convert Buf To Utf8");
+    let match_stream = TcpStream::connect(match_socket_ip).await.unwrap();
 
     let ci = RpsMatchClientInfo {   
         stream:match_stream,
@@ -72,10 +54,7 @@ pub async fn handle_client(mut stream : TcpStream, addr : SocketAddr, c_to_cm_se
             Some(msg) => {
                 println!("handler recieved: {:?}\nSending To Client", msg.to_string());
                 let rps_serialized = serde_json::to_string(&msg).unwrap();
-                if let Err(e) = stream.write_all(rps_serialized.as_bytes()).await {
-                    println!("Error Sending Match Results: {}", e);
-                    return;
-                }
+                send_buf_stream(&mut stream, rps_serialized.as_bytes()).await;
             }
             None => println!("Channel Has Been Closed"),
         }
@@ -100,12 +79,12 @@ pub async fn client_manger() {
 
 	loop {
 		match listener.accept().await {
-			Ok((stream, addr)) => {
+			Ok((stream, _)) => {
 
                 println!("Handling Incoming Client");
                 let ci_sender_clone = ci_sender.clone();
                 tokio::spawn(async move {
-					handle_client(stream, addr, ci_sender_clone).await;
+					handle_client(stream, ci_sender_clone).await;
 				});
 			}
 			Err(e) => println!("Error in acception: {}", e),
@@ -147,18 +126,17 @@ pub async fn handle_match(client_pair : RpsMatchClientPair) {
     let p1_start = format!("{}", p2.client_name.clone());
     let p2_start = format!("{}", p1.client_name.clone());
     
-    println!("Asking Clients For Moves");
+    println!("Sending Opponent Names");
     
-    if let Err(e) = p1.stream.write_all(p1_start.as_bytes()).await {
-        println!("During Start {} Stream Has Given error {}", &p1.client_name, e);
-        return;
-    }
-    
-    if let Err(e) = p2.stream.write_all(p2_start.as_bytes()).await {
-        println!("During Start {} Stream Has Given error {}", &p2.client_name, e);
-        return;
-    }
-    
+    send_buf_stream(&mut p1.stream, p1_start.as_bytes()).await;
+    send_buf_stream(&mut p2.stream, p2_start.as_bytes()).await;
+
+    let rec1 = recieve_buf_stream(&p1.stream).await;
+    let rec2 = recieve_buf_stream(&p2.stream).await;
+
+    assert_eq!(rec1, "Recieved".as_bytes());
+    assert_eq!(rec2, "Recieved".as_bytes());
+
     let play_move = "Play Your Move".to_string();
     let mut m = RpsMatchInfo { 
         p1_name:p1.client_name.clone(),
@@ -170,44 +148,19 @@ pub async fn handle_match(client_pair : RpsMatchClientPair) {
     };
     loop {
         // Requesting Player Moves
-        if let Err(e) = p1.stream.write_all(play_move.clone().as_bytes()).await {
-        println!("During Start {} Stream Has Given error {}", &p1.client_name, e);
-        return;
-        }
-
-        if let Err(e) = p2.stream.write_all(play_move.clone().as_bytes()).await {
-        println!("During Start {} Stream Has Given error {}", &p2.client_name, e);
-        return;
-        }
+        println!("Requsting Player Moves");
+        send_buf_stream(&mut p1.stream, play_move.clone().as_bytes()).await;
+        send_buf_stream(&mut p2.stream, play_move.clone().as_bytes()).await;
 
         // Recieving Player Moves
-        let mut p1_move_buf = Vec::new(); 
-        p1.stream.readable().await.expect("Should Be Readable");
+        let p1_move_buf = recieve_buf_stream(&p1.stream).await; 
+        let p1_move_string = String::from_utf8(p1_move_buf).expect("Could Not Convert To String");
+        let p1_move : RpsMoveType = serde_json::from_str(&p1_move_string).expect("Could Not Convert To RpsMoveType");
 
-        let p1_move : RpsMoveType;
-        match p1.stream.try_read(&mut p1_move_buf) {
-            Ok(n) => {
-                p1_move = serde_json::from_str(&String::from_utf8(p1_move_buf).unwrap()).unwrap();
-            }
-            Err(e) => {
-                println!("Error Recieving Player Move: {}", e);
-                return;
-            }
-        }
-
-        let mut p2_move_buf = Vec::new(); 
-        p2.stream.readable().await.expect("Should Be Readable");
-
-        let p2_move : RpsMoveType;
-        match p1.stream.try_read(&mut p2_move_buf) {
-            Ok(n) => {
-                p2_move = serde_json::from_str(&String::from_utf8(p2_move_buf).unwrap()).unwrap();
-            }
-            Err(e) => {
-                println!("Error Recieving Player Move: {}", e);
-                return;
-            }
-        }
+        let p2_move_buf = recieve_buf_stream(&p2.stream).await; 
+        let p2_move : RpsMoveType = serde_json::from_str(&String::from_utf8(p2_move_buf)
+            .expect("Could Not Convert To String"))
+            .expect("Could Not Convert To RpsMoveType");
 
         // Check Who Wins Round
         let (p1_res, p2_res) = who_wins_move(p1_move, p2_move);
@@ -230,36 +183,27 @@ pub async fn handle_match(client_pair : RpsMatchClientPair) {
 
 
         // Send Match Info To Players
-        let rps_match_info_serialized = serde_json::to_string(&m).unwrap();
+        let rps_lib_info_serialized = serde_json::to_string(&m).unwrap();
 
-        if let Err(e) = p1.stream.write_all(rps_match_info_serialized.clone().as_bytes()).await {
-            println!("During Start {} Stream Has Given error {}", &p1.client_name, e);
-            return;
-        }
+        send_buf_stream(&mut p1.stream, rps_lib_info_serialized.clone().as_bytes()).await;
+        send_buf_stream(&mut p2.stream, rps_lib_info_serialized.clone().as_bytes()).await;
 
-        if let Err(e) = p2.stream.write_all(rps_match_info_serialized.clone().as_bytes()).await {
-            println!("During Start {} Stream Has Given error {}", &p2.client_name, e);
-            return;
-        }
+        let proc1 = recieve_buf_stream(&p1.stream).await;
+        let proc2 = recieve_buf_stream(&p2.stream).await;
 
+        assert_eq!(proc1, "Processed".as_bytes());
+        assert_eq!(proc2, "Processed".as_bytes());
     }
 
     // Send Match Results To Clients
-    let rps_match_info_serialized = serde_json::to_string(&m).unwrap();
+    let rps_lib_info_serialized = serde_json::to_string(&m).unwrap();
 
-    if let Err(e) = p1.stream.write_all(rps_match_info_serialized.clone().as_bytes()).await {
-        println!("During Start {} Stream Has Given error {}", &p1.client_name, e);
-        return;
-    }
-
-    if let Err(e) = p2.stream.write_all(rps_match_info_serialized.clone().as_bytes()).await {
-        println!("During Start {} Stream Has Given error {}", &p2.client_name, e);
-        return;
-    }
+    send_buf_stream(&mut p1.stream, rps_lib_info_serialized.clone().as_bytes()).await;
+    send_buf_stream(&mut p2.stream, rps_lib_info_serialized.clone().as_bytes()).await;
     
     // Close Connections
-    p1.stream.shutdown().await;
-    p2.stream.shutdown().await;
+    p1.stream.shutdown().await.expect("Shutdown of p1 stream failed");
+    p2.stream.shutdown().await.expect("Shutdonw of p2 stream failed");
     
 }
 

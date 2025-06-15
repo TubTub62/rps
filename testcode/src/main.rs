@@ -1,12 +1,29 @@
-fn main() {
-    let mut somevec = vec![1, 2, 3, 4];
-    let mut vec_drain = somevec.drain(0..2);
+use tokio::signal;
 
-    let mut nvec = vec![vec_drain];
+mod server;
+use server::server_test;
 
-    //println!("vec_drain: {:?}", vec_drain.next().unwrap());
-    
-    println!("nvec: {:?}", &nvec);
-    drop(vec_drain);
-    println!("somevec: {:?}", &somevec);
+mod client;
+use client::client;
+
+
+async fn get_mode() -> String {
+    let mut mode = String::new();
+    let _ = std::io::stdin().read_line(&mut mode);
+    return mode.replace("\n", "");
+}
+
+#[tokio::main]
+async fn main(){
+    let mode = get_mode().await;
+    let str_mode = mode.as_str();
+    //assert_eq!(str_mode, "server");
+
+    match str_mode {
+        "server" => server_test().await,
+        "client" => client().await, 
+        _ => println!("Invalid Mode"),
+    }
+    signal::ctrl_c().await.expect("Could Not Listen");
+
 }

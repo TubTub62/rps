@@ -1,5 +1,5 @@
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::{Sender, Receiver};
+use tokio::sync::mpsc::{Sender};
 use serde::{Deserialize, Serialize};
 
 pub enum RpsClientStatus {
@@ -7,7 +7,7 @@ pub enum RpsClientStatus {
     FinishedMatch,
 }
 
-#[derive(Copy, Clone, Serialize)]
+#[derive(Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum RpsMatchStatus {
     Ongoing,
     Done,
@@ -26,7 +26,7 @@ pub struct RpsMatchClientPair {
     pub p2 : RpsMatchClientInfo,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct RpsMatchInfo {
     pub p1_name : String,
     pub p2_name : String,
@@ -36,7 +36,7 @@ pub struct RpsMatchInfo {
     pub won_round : String,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub enum RpsMoveType {
     Rock,
     Paper,

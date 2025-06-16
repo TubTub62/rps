@@ -1,6 +1,7 @@
 use tokio::net::{TcpStream};
 use tokio::io::{AsyncWriteExt};
 use tokio::time::{sleep, Duration};
+use tokio::sync::mpsc::{Sender};
 
 pub async fn get_user_input(msg : String) -> String{
     println!("{}", msg);
@@ -32,5 +33,12 @@ pub async fn send_buf_stream(stream : &mut TcpStream, buf : &[u8]) {
     if let Err(e) = stream.write_all(&buf).await {
 			println!("Error Getting Name From Client: {}", e);
 			return;
+    }
+}
+
+pub async fn channel_send<T>(chn : &Sender<T>, msg : T ) {
+    if let Err(e) = chn.send(msg).await {
+        println!("Error Sending On Channel: {}", e);
+        return;
     }
 }

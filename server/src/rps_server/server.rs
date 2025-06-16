@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 
 extern crate rps_lib;
 
-use rps_lib::types::{RpsMatchClientInfo, RpsMatchClientPair, RpsMatchInfo};
+use rps_lib::types::{ClientAction, RpsMatchClientInfo, RpsMatchClientPair, RpsMatchInfo};
 use rps_lib::types::{RpsClientStatus, RpsMatchStatus};
 
 use rps_lib::types::RpsMoveType;
@@ -14,51 +14,78 @@ use rps_lib::types::RpsMoveType::*;
 use rps_lib::types::RpsMoveResult;
 use rps_lib::types::RpsMoveResult::*;
 
-use rps_lib::util::{send_buf_stream, recieve_buf_stream};
+use rps_lib::util::{channel_send, recieve_buf_stream, send_buf_stream};
+
+pub async fn client_choose_action(stream : &mut TcpStream) -> ClientAction {
+    let req = "Choose Action";
+    send_buf_stream(stream, req.as_bytes()).await;
+
+    let action = recieve_buf_stream(stream).await;
+    let action : ClientAction = serde_json::from_slice(&action.as_slice()).expect("Failed To Deserialize");
+
+    return action;
+}
 
 pub async fn handle_client(mut stream : TcpStream, c_to_cm_sender : Sender<RpsMatchClientInfo>) {
     stream.set_nodelay(true).unwrap();
 
     let wait_msg = "Provide Name".to_string();
-    
-    println!("Requesting Client Name");
     send_buf_stream(&mut stream, wait_msg.as_bytes()).await;
 
-    println!("Waiting On Client Name");
     let inc_name = recieve_buf_stream(&stream).await;
-    println!("Recieved Client Name");
-
     let inc_name_processed = String::from_utf8(inc_name).unwrap();
 
-    let (match_info_sender, mut match_info_reciever) = mpsc::channel::<RpsMatchInfo>(100);
-
-    let match_socket_ip_buf = recieve_buf_stream(&stream).await;
-    let match_socket_ip = String::from_utf8(match_socket_ip_buf).expect("Failed To Convert Buf To Utf8");
-    let match_stream = TcpStream::connect(match_socket_ip).await.unwrap();
-
-    let ci = RpsMatchClientInfo {   
-        stream:match_stream,
-        client_name:inc_name_processed,
-        client_status:RpsClientStatus::Queueing,
-        client_sender:match_info_sender.clone(),
-    };
-
-    println!("Sending Client To Queue");
-    if let Err(_) = c_to_cm_sender.send(ci).await {
-        println!("Reciever Dropped");
-        return;
-    }
-
     loop {
-        match match_info_reciever.recv().await  {
-            Some(msg) => {
-                println!("handler recieved: {:?}\nSending To Client", msg.to_string());
-                let rps_serialized = serde_json::to_string(&msg).unwrap();
-                send_buf_stream(&mut stream, rps_serialized.as_bytes()).await;
+        let action = client_choose_action(&mut stream).await;
+        match action {
+            ClientAction::Quit => {
+                println!("Client Quit");
+                return;
             }
-            None => println!("Channel Has Been Closed"),
+            ClientAction::FindMatch => {
+                let (match_info_sender, mut match_info_reciever) = mpsc::channel::<RpsMatchStatus>(100);
+
+                let match_socket_ip_buf = recieve_buf_stream(&stream).await;
+                let match_socket_ip = String::from_utf8(match_socket_ip_buf).expect("Failed To Convert Buf To Utf8");
+                println!("Connecting To Match Socket");
+                let match_stream = TcpStream::connect(match_socket_ip).await.expect("Socket Connection Failed");
+
+                let ci = RpsMatchClientInfo {   
+                    stream:match_stream,
+                    client_name:inc_name_processed.clone(),
+                    client_status:RpsClientStatus::Queueing,
+                    client_sender:match_info_sender.clone(),
+                };
+
+                println!("Sending Client To Queue");
+                if let Err(_) = c_to_cm_sender.send(ci).await {
+                    println!("Reciever Dropped");
+                    return;
+                }
+
+                match match_info_reciever.recv().await  {
+                    Some(msg) if msg.eq(&RpsMatchStatus::Done) => {
+                        continue;
+                    }
+                    Some(msg) if msg.eq(&RpsMatchStatus::Ongoing) => {
+                        println!("Wrong Status Acquired. Closing Client Connection");
+                        return;
+                    }
+                    Some(_) => {
+                        println!("Really Bad Signal");
+                        return;
+                    }
+                    None => {
+                        println!("Channel Has Been Closed");
+                        return;
+                    }
+                }
+            }
         }
+
+    
     }
+
 }
 
 pub async fn client_manger() {
@@ -104,7 +131,7 @@ pub async fn match_manager(mut client_stack : Receiver<RpsMatchClientInfo>) {
             None => println!("Match Manager: Recieved Nothing"),
         }
 
-        println!("Current rc length: {:?}", ready_clients.len());
+        println!("Current Queue Length: {:?}", ready_clients.len());
         while ready_clients.len() >= 2 {
             println!("Setting Up Match");
             let mut proc = ready_clients.drain(0..2);
@@ -201,10 +228,15 @@ pub async fn handle_match(client_pair : RpsMatchClientPair) {
     send_buf_stream(&mut p1.stream, rps_lib_info_serialized.clone().as_bytes()).await;
     send_buf_stream(&mut p2.stream, rps_lib_info_serialized.clone().as_bytes()).await;
     
+    // Sending Signal To Client Handler
+    channel_send(&p1.client_sender, RpsMatchStatus::Done).await;
+    channel_send(&p2.client_sender, RpsMatchStatus::Done).await;
+
     // Close Connections
     p1.stream.shutdown().await.expect("Shutdown of p1 stream failed");
     p2.stream.shutdown().await.expect("Shutdonw of p2 stream failed");
     
+    println!("Match Finished");
 }
 
 pub fn who_wins_move(p1_move : RpsMoveType, p2_move : RpsMoveType) -> (RpsMoveResult, RpsMoveResult) {

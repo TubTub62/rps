@@ -7,7 +7,7 @@ pub enum RpsClientStatus {
     FinishedMatch,
 }
 
-#[derive(Copy, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum RpsMatchStatus {
     Ongoing,
     Done,
@@ -17,7 +17,7 @@ pub struct RpsMatchClientInfo {
     pub stream : TcpStream,
     pub client_name : String,
     pub client_status : RpsClientStatus,
-    pub client_sender : Sender<RpsMatchInfo>,
+    pub client_sender : Sender<RpsMatchStatus>,
 }
 
 
@@ -67,4 +67,10 @@ impl Clone for RpsMatchInfo {
             won_round:self.won_round.clone(),
         }
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum ClientAction {
+    Quit,
+    FindMatch,
 }

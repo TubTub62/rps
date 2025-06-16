@@ -1,11 +1,30 @@
 use tokio::{net::{TcpListener, TcpStream}};
 
 extern crate rps_lib;
-use rps_lib::{types::RpsMoveType, util::{get_user_input, recieve_buf_stream, send_buf_stream}};
+use rps_lib::{types::{ClientAction, RpsMoveType}, util::{get_user_input, recieve_buf_stream, send_buf_stream}};
 use rps_lib::types::{RpsMatchInfo};
 use rps_lib::types::RpsMoveType::*;
 
 use port_check;
+
+pub async fn get_free_ip(stream : &TcpStream) -> String {
+    let free_port = port_check::free_local_port().unwrap();
+    
+    let client_ip : String =  stream
+        .local_addr()
+        .unwrap()
+        .to_string()
+        .clone();
+
+    let ip_temp : Vec<&str> = client_ip 
+        .as_str()
+        .split(":")
+        .collect();
+
+    let ip = ip_temp[0];
+    let full_new_addr = format!("{}:{}", ip, free_port);
+    return full_new_addr;
+}
 
 pub async fn wait_for_match(stream : &mut TcpStream) {
 
@@ -92,54 +111,89 @@ pub async fn play_match(stream : &mut TcpStream, player_name : String) {
 
 }
 
-pub async fn spawn_client(player_name : String) -> Result<(), std::io::Error> {
+pub async fn user_choose_action(stream : &mut TcpStream) -> ClientAction {
+    loop {
+        println!("1. Quit");
+        println!("2. Find Match");
+        let user_action_input = get_user_input("Choose Action:".to_string())
+            .await
+            .replace("\n", "");
+
+        let conv : i32;
+        match user_action_input.parse() {
+            Ok(n) => conv = n,
+            Err(_) => {
+                println!("Wrong Input");
+                continue;
+            }
+        }
+
+        match conv {
+            1 => {
+                return ClientAction::Quit;
+            }
+            2 => {
+                return ClientAction::FindMatch;
+            }
+            _ => {
+                println!("Wrong Input");
+                continue;
+            }
+        }
+    }
+}
+
+pub async fn spawn_client(player_name : String) {
 
     println!("Client ({}) Trying to connect to server", &player_name);
-
     let addr = "127.0.0.1:4000".to_string();
     let mut stream = TcpStream::connect(addr).await.unwrap();
-
     println!("Client ({}) Connected to server", &player_name);
 
     let server_request = recieve_buf_stream(&stream).await;
-
     let server_request_processed = String::from_utf8(server_request).unwrap();
     assert_eq!(server_request_processed, "Provide Name".to_string());
     send_buf_stream(&mut stream, player_name.clone().as_bytes()).await;
+    println!("Provided Name");
 
-    let free_port = port_check::free_local_port().unwrap();
-    let current_addr = stream
-    .local_addr()
-    .unwrap()
-    .to_string()
-    .clone();
+    loop {
+        let act_signal = recieve_buf_stream(&stream).await;
+        assert_eq!(act_signal, "Choose Action".as_bytes());
+        let action = user_choose_action(&mut stream).await;
+        match action {
+            ClientAction::Quit => {
+                let action_ser = serde_json::to_string(&ClientAction::Quit).expect("Failed To Serialize");
+                send_buf_stream(&mut stream, action_ser.as_bytes()).await;
+                println!("Quiting RPS");
+                return;
+            }
+            ClientAction::FindMatch => {
+                let action_ser = serde_json::to_string(&ClientAction::FindMatch).expect("Failed To Serialize");
+                send_buf_stream(&mut stream, action_ser.as_bytes()).await;
 
-    let ip_temp : Vec<&str> = current_addr 
-        .as_str()
-        .split(":")
-        .collect();
-    
-    let ip = ip_temp[0];
-    let full_new_addr = format!("{}:{}", ip, free_port);
+                let free_ip = get_free_ip(&stream).await;
+                let match_listener = TcpListener::bind(free_ip.clone()).await.expect("Could Not Create Match Listener");
+                send_buf_stream(&mut stream, free_ip.clone().as_bytes()).await;
 
-    let match_listener = TcpListener::bind(full_new_addr.clone()).await.expect("Could Not Create Match Listener");
-    send_buf_stream(&mut stream, full_new_addr.clone().as_bytes()).await;
-
-    let mut match_stream : TcpStream;
-    match match_listener.accept().await {
-        Ok((ms, _)) => {
-            match_stream = ms
-        }
-        Err(e) => {
-            println!("Some Err: {}", e);
-            return Err(e);
+                let mut match_stream : TcpStream;
+                match match_listener.accept().await {
+                    Ok((ms, _)) => {
+                        match_stream = ms
+                    }
+                    Err(e) => {
+                        println!("Some Err: {}", e);
+                        return;
+                    }
+                }
+                
+                wait_for_match(&mut match_stream).await;
+                println!("Found Match!");
+                play_match(&mut match_stream, player_name.clone()).await;
+            }
         }
     }
+
     
-    wait_for_match(&mut match_stream).await;
-    println!("Found Match!");
-    play_match(&mut match_stream, player_name.clone()).await;
-    Ok(())
 }
 
 

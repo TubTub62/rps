@@ -7,8 +7,10 @@ use rps_lib::types::RpsMoveType::*;
 
 use port_check;
 
+use super::simulate::random_action;
+
 pub async fn get_free_ip(stream : &TcpStream) -> String {
-    let free_port = port_check::free_local_port().unwrap();
+    let free_port = port_check::free_local_port().expect("Failed To Get An Open Port");
     
     let client_ip : String =  stream
         .local_addr()
@@ -73,7 +75,7 @@ pub async  fn display_results(mi : RpsMatchInfo, player_name : String) {
     }
 }
 
-pub async fn play_match(stream : &mut TcpStream, player_name : String) {
+pub async fn play_match(stream : &mut TcpStream, player_name : String, simulated : bool) {
 
     let mut match_info_buf : Vec<u8>;
     let mut match_info : RpsMatchInfo;
@@ -83,9 +85,14 @@ pub async fn play_match(stream : &mut TcpStream, player_name : String) {
         assert_eq!(play_signal, "Play Your Move".to_string());
 
         // Send Move
-        let player_move = get_user_input("Play Move".to_string()).await;
-        let player_move_rps_type = convert_to_move(player_move).await.unwrap();
-        let ser_player_move = serialize_move(player_move_rps_type).await;
+        let player_move : RpsMoveType;
+        if simulated {
+            player_move = random_action();
+        } else {
+            let player_move_raw = get_user_input("Play Move".to_string()).await;
+            player_move = convert_to_move(player_move_raw).await.unwrap();
+        }
+        let ser_player_move = serialize_move(player_move).await;
         send_buf_stream(stream, ser_player_move.as_bytes()).await;
 
         // Recieve Match State
@@ -111,7 +118,7 @@ pub async fn play_match(stream : &mut TcpStream, player_name : String) {
 
 }
 
-pub async fn user_choose_action(stream : &mut TcpStream) -> ClientAction {
+pub async fn user_choose_action() -> ClientAction {
     loop {
         println!("1. Quit");
         println!("2. Find Match");
@@ -143,23 +150,26 @@ pub async fn user_choose_action(stream : &mut TcpStream) -> ClientAction {
     }
 }
 
-pub async fn spawn_client(player_name : String) {
+pub async fn client(player_name : String, simulated : bool) {
 
-    println!("Client ({}) Trying to connect to server", &player_name);
-    let addr = "127.0.0.1:4000".to_string();
+    let addr = "127.0.0.1:4000";
     let mut stream = TcpStream::connect(addr).await.unwrap();
-    println!("Client ({}) Connected to server", &player_name);
+    println!("{} - Connected to server on remote address: {}", player_name, stream.peer_addr().expect("Could not get remote address"));
 
     let server_request = recieve_buf_stream(&stream).await;
     let server_request_processed = String::from_utf8(server_request).unwrap();
     assert_eq!(server_request_processed, "Provide Name".to_string());
     send_buf_stream(&mut stream, player_name.clone().as_bytes()).await;
-    println!("Provided Name");
 
     loop {
         let act_signal = recieve_buf_stream(&stream).await;
         assert_eq!(act_signal, "Choose Action".as_bytes());
-        let action = user_choose_action(&mut stream).await;
+        let action : ClientAction;
+        if simulated {
+            action = ClientAction::FindMatch
+        } else {
+            action = user_choose_action().await;
+        }
         match action {
             ClientAction::Quit => {
                 let action_ser = serde_json::to_string(&ClientAction::Quit).expect("Failed To Serialize");
@@ -170,6 +180,9 @@ pub async fn spawn_client(player_name : String) {
             ClientAction::FindMatch => {
                 let action_ser = serde_json::to_string(&ClientAction::FindMatch).expect("Failed To Serialize");
                 send_buf_stream(&mut stream, action_ser.as_bytes()).await;
+                
+                let recieve_signal = recieve_buf_stream(&stream).await;
+                assert_eq!(recieve_signal, "Provide Match Socket".as_bytes());
 
                 let free_ip = get_free_ip(&stream).await;
                 let match_listener = TcpListener::bind(free_ip.clone()).await.expect("Could Not Create Match Listener");
@@ -187,8 +200,8 @@ pub async fn spawn_client(player_name : String) {
                 }
                 
                 wait_for_match(&mut match_stream).await;
-                println!("Found Match!");
-                play_match(&mut match_stream, player_name.clone()).await;
+                play_match(&mut match_stream, player_name.clone(), simulated).await;
+                drop(match_listener);
             }
         }
     }

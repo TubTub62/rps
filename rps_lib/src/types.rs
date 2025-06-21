@@ -2,6 +2,8 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc::{Sender};
 use serde::{Deserialize, Serialize};
 
+pub mod torunament;
+
 pub enum RpsClientStatus {
     Queueing,
     FinishedMatch,
@@ -36,20 +38,6 @@ pub struct RpsMatchInfo {
     pub won_round : String,
 }
 
-#[derive(Serialize, Deserialize)]
-pub enum RpsMoveType {
-    Rock,
-    Paper,
-    Scissor,
-}
-
-#[derive(PartialEq)]
-pub enum RpsMoveResult {
-    Win,
-    Draw,
-    Lose
-}
-
 impl RpsMatchInfo {
     pub fn to_string(&self)  -> String {
         return format!("Client Name: {}", self.p1_name);
@@ -70,7 +58,23 @@ impl Clone for RpsMatchInfo {
 }
 
 #[derive(Serialize, Deserialize)]
+pub enum RpsMoveType {
+    Rock,
+    Paper,
+    Scissor,
+}
+
+#[derive(PartialEq)]
+pub enum RpsMoveResult {
+    Win,
+    Draw,
+    Lose
+}
+
+
+#[derive(Serialize, Deserialize)]
 pub enum ClientAction {
     Quit,
     FindMatch,
 }
+

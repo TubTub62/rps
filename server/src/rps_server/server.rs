@@ -21,6 +21,7 @@ pub async fn client_choose_action(stream : &mut TcpStream) -> ClientAction {
     send_buf_stream(stream, req.as_bytes()).await;
 
     let action = recieve_buf_stream(stream).await;
+    //println!("action: {}", String::from_utf8(action.clone()).expect("Could not convert to string"));
     let action : ClientAction = serde_json::from_slice(&action.as_slice()).expect("Failed To Deserialize");
 
     return action;
@@ -45,7 +46,10 @@ pub async fn handle_client(mut stream : TcpStream, c_to_cm_sender : Sender<RpsMa
             ClientAction::FindMatch => {
                 let (match_info_sender, mut match_info_reciever) = mpsc::channel::<RpsMatchStatus>(100);
 
+                let provide_match_socket = "Provide Match Socket";
+                send_buf_stream(&mut stream, provide_match_socket.as_bytes()).await;
                 let match_socket_ip_buf = recieve_buf_stream(&stream).await;
+
                 let match_socket_ip = String::from_utf8(match_socket_ip_buf).expect("Failed To Convert Buf To Utf8");
                 println!("Connecting To Match Socket");
                 let match_stream = TcpStream::connect(match_socket_ip).await.expect("Socket Connection Failed");
@@ -236,6 +240,10 @@ pub async fn handle_match(client_pair : RpsMatchClientPair) {
     p1.stream.shutdown().await.expect("Shutdown of p1 stream failed");
     p2.stream.shutdown().await.expect("Shutdonw of p2 stream failed");
     
+    // Manually Dropping Streams
+    drop(p1);
+    drop(p2);
+
     println!("Match Finished");
 }
 

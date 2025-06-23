@@ -1,7 +1,7 @@
 use tokio::signal;
 
 mod rps_server;
-use rps_server::server::{client_manger};
+use rps_server::server::manager::client::client_manger;
 
 #[tokio::main]
 async fn main() {

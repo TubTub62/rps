@@ -13,6 +13,7 @@ pub enum RpsClientStatus {
 pub enum RpsMatchStatus {
     Ongoing,
     Done,
+    Abrupt,
 }
 
 pub struct RpsMatchClientInfo {

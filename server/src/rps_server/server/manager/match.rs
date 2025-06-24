@@ -4,7 +4,11 @@ use rps_lib::{types::RpsMatchClientInfo};
 
 use crate::rps_server::server::handler::r#match::handle_match;
 
+use rps_lib::sql::util::create_pool;
+
 pub async fn match_manager(mut client_stack : Receiver<RpsMatchClientInfo>) {
+
+    create_pool(5).await;
 
     let mut ready_clients = Vec::new();
     loop {
